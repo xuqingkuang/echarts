@@ -8,6 +8,53 @@ define(function(require) {
     var zrUtil = require('zrender/core/util');
     var encodeHTML = require('../../util/format').encodeHTML;
 
+    /**
+     * Get angle
+     */
+    function getAngle(mx, my, px, py) {
+        var x = Math.abs(px - mx);
+        var y = Math.abs(py - my);
+        var z = Math.sqrt(Math.pow(x, 2) + Math.pow(y, 2));
+        var cos = y / z;
+        var radina = Math.acos(cos);
+        var angle = Math.floor(180 / (Math.PI / radina));
+        if(mx > px && my > py){
+            angle = 180-angle;
+        }
+        if(mx == px && my > py){
+            angle = 180;
+        }
+        if(mx > px && my == py){
+            angle = 90;
+        }
+        if(mx < px && my > py){
+            angle = 180 + angle;
+        }
+        if(mx < px && my == py){
+            angle = 270;
+        }
+        if(mx < px && my < py){
+            angle = 360-angle;
+        }
+
+        // Turn Echarts radar to be anti-clockwise.
+        return 360 - angle;
+    };
+
+    /**
+     * Get index by position of mouse.
+     */
+    function getIndexToDisplay(num, angle) {
+        var filterIndex = 0;
+        for(var i = 0; i < num; i++){
+            if (angle > (360 / num * i - 360 / num / 2) && angle < (360 / num * i + 360 / num / 2)) {
+                filterIndex = i;
+                break;
+            }
+        }
+        return filterIndex;
+    };
+
     var RadarSeries = SeriesModel.extend({
 
         type: 'series.radar',
@@ -36,14 +83,19 @@ define(function(require) {
             return list;
         },
 
-        formatTooltip: function (dataIndex) {
-            var value = this.getRawValue(dataIndex);
+        formatTooltip: function (dataIndex, bool, dataType, e) {
             var coordSys = this.coordinateSystem;
             var indicatorAxes = coordSys.getIndicatorAxes();
-            var name = this.getData().getName(dataIndex);
-            return encodeHTML(name === '' ? this.name : name) + '<br/>'
-                + zrUtil.map(indicatorAxes, function (axis, idx) {
-                    return encodeHTML(axis.name + ' : ' + value[idx]);
+            var values = zrUtil.map(this.getData().indices, (function(_this) {
+                return function(indice, index) {
+                    return _this.getRawValue(index);
+                };
+            })(this));
+            var data = this.getData();
+            var index = getIndexToDisplay(values[0].length, getAngle(e.offsetX, e.offsetY, coordSys.cx, coordSys.cy));
+            return encodeHTML(name === '' ? indicatorAxes[index].name : name) + '<br/>'
+                + zrUtil.map(values, function (value, i) {
+                    return encodeHTML(data.getName(i) + ' : ' + value[index]);
                 }).join('<br />');
         },
 

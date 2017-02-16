@@ -616,7 +616,8 @@ define(function (require) {
                     axisType = baseAxis.dim;
                 }
 
-                if (baseAxis.scale.isBlank() || zrUtil.eqNaN(point[0]) || zrUtil.eqNaN(point[1])) {
+                var isBlank = baseAxis.scale && baseAxis.scale.isBlank || baseAxis.isBlank;
+                if (isBlank() || zrUtil.eqNaN(point[0]) || zrUtil.eqNaN(point[1])) {
                     this._hideAxisPointer(coordSys.name);
                     return;
                 }
@@ -1128,7 +1129,7 @@ define(function (require) {
             var tooltipModel = new Model(tooltipOpt, seriesTooltipModel, seriesTooltipModel.ecModel);
 
             var params = seriesModel.getDataParams(dataIndex, dataType);
-            var defaultHtml = seriesModel.formatTooltip(dataIndex, false, dataType);
+            var defaultHtml = seriesModel.formatTooltip(dataIndex, false, dataType, e);
 
             var asyncTicket = 'item_' + seriesModel.name + '_' + dataIndex;
 

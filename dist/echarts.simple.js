@@ -59,10 +59,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 	module.exports = __webpack_require__(1);
 
-	__webpack_require__(100);
-	__webpack_require__(134);
-	__webpack_require__(141);
-	__webpack_require__(113);
+	__webpack_require__(104);
+	__webpack_require__(135);
+	__webpack_require__(142);
+	__webpack_require__(114);
 
 /***/ },
 /* 1 */
@@ -608,7 +608,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	     *            geoIndex / geoId / geoName,
 	     *            bmapIndex / bmapId / bmapName,
 	     *            xAxisIndex / xAxisId / xAxisName,
-	     *            yAxisIndex / yAxisId / yAxisName
+	     *            yAxisIndex / yAxisId / yAxisName,
 	     *            gridIndex / gridId / gridName,
 	     *            ... (can be extended)
 	     *        }
@@ -693,6 +693,24 @@ return /******/ (function(modules) { // webpackBootstrap
 	            : data.getVisual(visualType);
 	    };
 
+	    /**
+	     * Get view of corresponding component model
+	     * @param  {module:echarts/model/Component} componentModel
+	     * @return {module:echarts/view/Component}
+	     */
+	    echartsProto.getViewOfComponentModel = function (componentModel) {
+	        return this._componentsMap[componentModel.__viewId];
+	    };
+
+	    /**
+	     * Get view of corresponding series model
+	     * @param  {module:echarts/model/Series} seriesModel
+	     * @return {module:echarts/view/Chart}
+	     */
+	    echartsProto.getViewOfSeriesModel = function (seriesModel) {
+	        return this._chartsMap[seriesModel.__viewId];
+	    };
+
 
 	    var updateMethods = {
 
@@ -701,7 +719,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	         * @private
 	         */
 	        update: function (payload) {
-	            // console.time && console.time('update');
+	            // console.profile && console.profile('update');
 
 	            var ecModel = this._model;
 	            var api = this._api;
@@ -774,7 +792,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 	            }
 
-	            // console.time && console.timeEnd('update');
+	            each(postUpdateFuncs, function (func) {
+	                func(ecModel, api);
+	            });
+
+	            // console.profile && console.profileEnd('update');
 	        },
 
 	        /**
@@ -987,14 +1009,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	            return;
 	        }
 
-	        // if (__DEV__) {
-	        //     zrUtil.assert(
-	        //         !this[IN_MAIN_PROCESS],
-	        //         '`dispatchAction` should not be called during main process.'
-	        //         + 'unless updateMathod is "none".'
-	        //     );
-	        // }
-
 	        // May dispatchAction in rendering procedure
 	        if (this[IN_MAIN_PROCESS]) {
 	            this._pendingActions.push(payload);
@@ -1142,6 +1156,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	        // If use hover layer
 	        updateHoverLayerStatus(this._zr, ecModel);
+
+	        // Post render
+	        each(postUpdateFuncs, function (func) {
+	            func(ecModel, api);
+	        });
 	    }
 
 	    /**
@@ -1503,6 +1522,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var optionPreprocessorFuncs = [];
 
 	    /**
+	     * @type {Array.<Function>}
+	     * @inner
+	     */
+	    var postUpdateFuncs = [];
+
+	    /**
 	     * Visual encoding functions of each stage
 	     * @type {Array.<Object.<string, Function>>}
 	     * @inner
@@ -1711,6 +1736,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            prio: priority,
 	            func: processorFunc
 	        });
+	    };
+
+	    /**
+	     * Register postUpdater
+	     * @param {Function} postUpdateFunc
+	     */
+	    echarts.registerPostUpdate = function (postUpdateFunc) {
+	        postUpdateFuncs.push(postUpdateFunc);
 	    };
 
 	    /**
@@ -1929,6 +1962,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	            echarts.util[name] = zrUtil[name];
 	        }
 	    );
+
+	    echarts.helper = __webpack_require__(100);
 
 	    // PRIORITY
 	    echarts.PRIORITY = {
@@ -2421,7 +2456,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            }
 	            else {
 	                // Return all components with mainType
-	                result = cpts;
+	                result = cpts.slice();
 	            }
 
 	            return filterBySubType(result, condition);
@@ -3824,7 +3859,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	     *        If Object, could contain some of these properties below:
 	     *        {
 	     *            seriesIndex, seriesId, seriesName,
-	     *            geoIndex, geoId, goeName,
+	     *            geoIndex, geoId, geoName,
 	     *            bmapIndex, bmapId, bmapName,
 	     *            xAxisIndex, xAxisId, xAxisName,
 	     *            yAxisIndex, yAxisId, yAxisName,
@@ -3838,8 +3873,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	     *            geoId: ['aa', 'cc'],
 	     *            gridName: ['xx', 'rr']
 	     *        }
+	     *        xxxIndex can be set as 'all' (means all xxx) or 'none' (means not specify)
+	     *        If nothing or null/undefined specified, return nothing.
 	     * @param {Object} [opt]
 	     * @param {string} [opt.defaultMainType]
+	     * @param {Array.<string>} [opt.includeMainTypes]
 	     * @return {Object} result like:
 	     *        {
 	     *            seriesModels: [seriesModel1, seriesModel2],
@@ -3878,14 +3916,22 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            var parsedKey = key.match(/^(\w+)(Index|Id|Name)$/) || [];
 	            var mainType = parsedKey[1];
-	            var queryType = parsedKey[2];
+	            var queryType = (parsedKey[2] || '').toLowerCase();
 
-	            if (!mainType || !queryType) {
+	            if (!mainType
+	                || !queryType
+	                || value == null
+	                || (queryType === 'index' && value === 'none')
+	                || (opt.includeMainTypes && zrUtil.indexOf(opt.includeMainTypes, mainType) < 0)
+	            ) {
 	                return;
 	            }
 
 	            var queryParam = {mainType: mainType};
-	            queryParam[queryType.toLowerCase()] = value;
+	            if (queryType !== 'index' || value !== 'all') {
+	                queryParam[queryType] = value;
+	            }
+
 	            var models = ecModel.queryComponents(queryParam);
 	            result[mainType + 'Models'] = models;
 	            result[mainType + 'Model'] = models[0];
@@ -6967,7 +7013,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var echartsAPIList = [
 	        'getDom', 'getZr', 'getWidth', 'getHeight', 'dispatchAction', 'isDisposed',
-	        'on', 'off', 'getDataURL', 'getConnectedDataURL', 'getModel', 'getOption'
+	        'on', 'off', 'getDataURL', 'getConnectedDataURL', 'getModel', 'getOption',
+	        'getViewOfComponentModel', 'getViewOfSeriesModel'
 	    ];
 
 	    function ExtensionAPI(chartInstance) {
@@ -7569,11 +7616,15 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	            this.mergeDefaultAndTheme(option, ecModel);
 
+	            var data = this.getInitialData(option, ecModel);
+	            if (true) {
+	                zrUtil.assert(data, 'getInitialData returned invalid data.');
+	            }
 	            /**
 	             * @type {module:echarts/data/List|module:echarts/data/Tree|module:echarts/data/Graph}
 	             * @private
 	             */
-	            set(this, 'dataBeforeProcessed', this.getInitialData(option, ecModel));
+	            set(this, 'dataBeforeProcessed', data);
 
 	            // If we reverse the order (make data firstly, and then make
 	            // dataBeforeProcessed by cloneShallow), cloneShallow will
@@ -11482,7 +11533,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	    }
 
 	    /**
-	     * Set hover style of element
+	     * Set hover style of element.
+	     * This method can be called repeatly without side-effects.
 	     * @param {module:zrender/Element} el
 	     * @param {Object} [hoverStyle]
 	     * @param {Object} [opt]
@@ -22909,27 +22961,32 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	
 
-	    var zrUtil = __webpack_require__(4);
-	    var echarts = __webpack_require__(1);
-	    var PRIORITY = echarts.PRIORITY;
+	    var createListFromArray = __webpack_require__(101);
+	    var symbolUtil = __webpack_require__(103);
+	    // var axisHelper = require('./coord/axisHelper');
 
-	    __webpack_require__(101);
-	    __webpack_require__(104);
+	    module.exports = {
+	        createList: function (seriesModel) {
+	            var data = seriesModel.get('data');
+	            return createListFromArray(data, seriesModel, seriesModel.ecModel);
+	        },
 
-	    echarts.registerVisual(zrUtil.curry(
-	        __webpack_require__(110), 'line', 'circle', 'line'
-	    ));
-	    echarts.registerLayout(zrUtil.curry(
-	        __webpack_require__(111), 'line'
-	    ));
+	        /**
+	         * Create a symbol element with given symbol configuration: shape, x, y, width, height, color
+	         * @see http://echarts.baidu.com/option.html#series-scatter.symbol
+	         * @param {string} symbolDesc
+	         * @param {number} x
+	         * @param {number} y
+	         * @param {number} w
+	         * @param {number} h
+	         * @param {string} color
+	         */
+	        createSymbol: symbolUtil.createSymbol
 
-	    // Down sample after filter
-	    echarts.registerProcessor(PRIORITY.PROCESSOR.STATISTIC, zrUtil.curry(
-	        __webpack_require__(112), 'line'
-	    ));
+	        // createScale: function () {
 
-	    // In case developer forget to include grid component
-	    __webpack_require__(113);
+	        // }
+	    };
 
 
 /***/ },
@@ -22939,99 +22996,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	'use strict';
 
 
-	    var createListFromArray = __webpack_require__(102);
-	    var SeriesModel = __webpack_require__(28);
-
-	    module.exports = SeriesModel.extend({
-
-	        type: 'series.line',
-
-	        dependencies: ['grid', 'polar'],
-
-	        getInitialData: function (option, ecModel) {
-	            if (true) {
-	                var coordSys = option.coordinateSystem;
-	                if (coordSys !== 'polar' && coordSys !== 'cartesian2d') {
-	                    throw new Error('Line not support coordinateSystem besides cartesian and polar');
-	                }
-	            }
-	            return createListFromArray(option.data, this, ecModel);
-	        },
-
-	        defaultOption: {
-	            zlevel: 0,                  // 一级层叠
-	            z: 2,                       // 二级层叠
-	            coordinateSystem: 'cartesian2d',
-	            legendHoverLink: true,
-
-	            hoverAnimation: true,
-	            // stack: null
-	            // xAxisIndex: 0,
-	            // yAxisIndex: 0,
-
-	            // polarIndex: 0,
-
-	            // If clip the overflow value
-	            clipOverflow: true,
-
-	            label: {
-	                normal: {
-	                    position: 'top'
-	                }
-	            },
-	            // itemStyle: {
-	            //     normal: {},
-	            //     emphasis: {}
-	            // },
-	            lineStyle: {
-	                normal: {
-	                    width: 2,
-	                    type: 'solid'
-	                }
-	            },
-	            // areaStyle: {},
-	            // false, 'start', 'end', 'middle'
-	            step: false,
-
-	            // Disabled if step is true
-	            smooth: false,
-	            smoothMonotone: null,
-	            // 拐点图形类型
-	            symbol: 'emptyCircle',
-	            // 拐点图形大小
-	            symbolSize: 4,
-	            // 拐点图形旋转控制
-	            symbolRotate: null,
-
-	            // 是否显示 symbol, 只有在 tooltip hover 的时候显示
-	            showSymbol: true,
-	            // 标志图形默认只有主轴显示（随主轴标签间隔隐藏策略）
-	            showAllSymbol: false,
-
-	            // 是否连接断点
-	            connectNulls: false,
-
-	            // 数据过滤，'average', 'max', 'min', 'sum'
-	            sampling: 'none',
-
-	            animationEasing: 'linear',
-
-	            // Disable progressive
-	            progressive: 0,
-	            hoverLayerThreshold: Infinity
-	        }
-	    });
-
-
-/***/ },
-/* 102 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-
 	    var List = __webpack_require__(98);
-	    var completeDimensions = __webpack_require__(103);
+	    var completeDimensions = __webpack_require__(102);
 	    var zrUtil = __webpack_require__(4);
 	    var modelUtil = __webpack_require__(5);
 	    var CoordinateSystem = __webpack_require__(26);
@@ -23073,7 +23039,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        if (!dimensions) {
 	            // Get dimensions from registered coordinate system
 	            dimensions = (registeredCoordSys && registeredCoordSys.dimensions) || ['x', 'y'];
-	            dimensions = completeDimensions(dimensions, data, dimensions.concat(['value']));
+	            dimensions = completeDimensions(dimensions, data, {defaultNames: dimensions.concat(['value'])});
 	        }
 	        var categoryIndex = axesInfo ? axesInfo.categoryIndex : -1;
 
@@ -23191,7 +23157,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var isXAxisCateogry = xAxisType === 'category';
 	            var isYAxisCategory = yAxisType === 'category';
 
-	            completeDimensions(dimensions, data, ['x', 'y', 'z']);
+	            completeDimensions(dimensions, data, {defaultNames: ['x', 'y', 'z']});
 
 	            var categoryAxesModels = {};
 	            if (isXAxisCateogry) {
@@ -23281,7 +23247,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var isAngleAxisCateogry = angleAxisType === 'category';
 	            var isRadiusAxisCateogry = radiusAxisType === 'category';
 
-	            completeDimensions(dimensions, data, ['radius', 'angle', 'value']);
+	            completeDimensions(dimensions, data, {defaultNames: ['radius', 'angle', 'value']});
 
 	            var categoryAxesModels = {};
 	            if (isRadiusAxisCateogry) {
@@ -23304,7 +23270,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	                dimensions: completeDimensions([
 	                    {name: 'lng'},
 	                    {name: 'lat'}
-	                ], data, ['lng', 'lat', 'value'])
+	                ], data, {defaultNames: ['lng', 'lat', 'value']})
 	            };
 	        }
 	    };
@@ -23347,7 +23313,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 103 */
+/* 102 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -23359,23 +23325,30 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    /**
 	     * Complete the dimensions array guessed from the data structure.
-	     * @param  {Array.<string>} dimensions      Necessary dimensions, like ['x', 'y']
-	     * @param  {Array} data                     Data list. [[1, 2, 3], [2, 3, 4]]
-	     * @param  {Array.<string>} [defaultNames]    Default names to fill not necessary dimensions, like ['value']
-	     * @param  {string} [extraPrefix]             Prefix of name when filling the left dimensions.
+	     * @param  {Array.<string>} dimensions Necessary dimensions, like ['x', 'y']
+	     * @param  {Array} data Data list. [[1, 2, 3], [2, 3, 4]]
+	     * @param  {Object} [opt]
+	     * @param  {Array.<string>} [opt.defaultNames] Default names to fill not necessary dimensions, like ['value']
+	     * @param  {string} [opt.extraPrefix] Prefix of name when filling the left dimensions.
+	     * @param  {number} [opt.dimCount] If not specified, guess by the first data item.
 	     * @return {Array.<string>}
 	     */
-	    function completeDimensions(dimensions, data, defaultNames, extraPrefix) {
+	    function completeDimensions(dimensions, data, opt) {
 	        if (!data) {
 	            return dimensions;
 	        }
 
-	        var value0 = retrieveValue(data[0]);
-	        var dimSize = zrUtil.isArray(value0) && value0.length || 1;
+	        opt = opt || {};
 
-	        defaultNames = defaultNames || [];
-	        extraPrefix = extraPrefix || 'extra';
-	        for (var i = 0; i < dimSize; i++) {
+	        var dimCount = opt.dimCount;
+	        if (dimCount == null) {
+	            var value0 = retrieveValue(data[0]);
+	            dimCount = zrUtil.isArray(value0) && value0.length || 1;
+	        }
+
+	        var defaultNames = opt.defaultNames || [];
+	        var extraPrefix = opt.extraPrefix || 'extra';
+	        for (var i = 0; i < dimCount; i++) {
 	            if (!dimensions[i]) {
 	                var name = defaultNames[i] || (extraPrefix + (i - defaultNames.length));
 	                dimensions[i] = guessOrdinal(data, i)
@@ -23417,7 +23390,487 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
+/* 103 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+	// Symbol factory
+
+
+	    var graphic = __webpack_require__(43);
+	    var BoundingRect = __webpack_require__(9);
+
+	    /**
+	     * Triangle shape
+	     * @inner
+	     */
+	    var Triangle = graphic.extendShape({
+	        type: 'triangle',
+	        shape: {
+	            cx: 0,
+	            cy: 0,
+	            width: 0,
+	            height: 0
+	        },
+	        buildPath: function (path, shape) {
+	            var cx = shape.cx;
+	            var cy = shape.cy;
+	            var width = shape.width / 2;
+	            var height = shape.height / 2;
+	            path.moveTo(cx, cy - height);
+	            path.lineTo(cx + width, cy + height);
+	            path.lineTo(cx - width, cy + height);
+	            path.closePath();
+	        }
+	    });
+	    /**
+	     * Diamond shape
+	     * @inner
+	     */
+	    var Diamond = graphic.extendShape({
+	        type: 'diamond',
+	        shape: {
+	            cx: 0,
+	            cy: 0,
+	            width: 0,
+	            height: 0
+	        },
+	        buildPath: function (path, shape) {
+	            var cx = shape.cx;
+	            var cy = shape.cy;
+	            var width = shape.width / 2;
+	            var height = shape.height / 2;
+	            path.moveTo(cx, cy - height);
+	            path.lineTo(cx + width, cy);
+	            path.lineTo(cx, cy + height);
+	            path.lineTo(cx - width, cy);
+	            path.closePath();
+	        }
+	    });
+
+	    /**
+	     * Pin shape
+	     * @inner
+	     */
+	    var Pin = graphic.extendShape({
+	        type: 'pin',
+	        shape: {
+	            // x, y on the cusp
+	            x: 0,
+	            y: 0,
+	            width: 0,
+	            height: 0
+	        },
+
+	        buildPath: function (path, shape) {
+	            var x = shape.x;
+	            var y = shape.y;
+	            var w = shape.width / 5 * 3;
+	            // Height must be larger than width
+	            var h = Math.max(w, shape.height);
+	            var r = w / 2;
+
+	            // Dist on y with tangent point and circle center
+	            var dy = r * r / (h - r);
+	            var cy = y - h + r + dy;
+	            var angle = Math.asin(dy / r);
+	            // Dist on x with tangent point and circle center
+	            var dx = Math.cos(angle) * r;
+
+	            var tanX = Math.sin(angle);
+	            var tanY = Math.cos(angle);
+
+	            path.arc(
+	                x, cy, r,
+	                Math.PI - angle,
+	                Math.PI * 2 + angle
+	            );
+
+	            var cpLen = r * 0.6;
+	            var cpLen2 = r * 0.7;
+	            path.bezierCurveTo(
+	                x + dx - tanX * cpLen, cy + dy + tanY * cpLen,
+	                x, y - cpLen2,
+	                x, y
+	            );
+	            path.bezierCurveTo(
+	                x, y - cpLen2,
+	                x - dx + tanX * cpLen, cy + dy + tanY * cpLen,
+	                x - dx, cy + dy
+	            );
+	            path.closePath();
+	        }
+	    });
+
+	    /**
+	     * Arrow shape
+	     * @inner
+	     */
+	    var Arrow = graphic.extendShape({
+
+	        type: 'arrow',
+
+	        shape: {
+	            x: 0,
+	            y: 0,
+	            width: 0,
+	            height: 0
+	        },
+
+	        buildPath: function (ctx, shape) {
+	            var height = shape.height;
+	            var width = shape.width;
+	            var x = shape.x;
+	            var y = shape.y;
+	            var dx = width / 3 * 2;
+	            ctx.moveTo(x, y);
+	            ctx.lineTo(x + dx, y + height);
+	            ctx.lineTo(x, y + height / 4 * 3);
+	            ctx.lineTo(x - dx, y + height);
+	            ctx.lineTo(x, y);
+	            ctx.closePath();
+	        }
+	    });
+
+	    /**
+	     * Map of path contructors
+	     * @type {Object.<string, module:zrender/graphic/Path>}
+	     */
+	    var symbolCtors = {
+	        line: graphic.Line,
+
+	        rect: graphic.Rect,
+
+	        roundRect: graphic.Rect,
+
+	        square: graphic.Rect,
+
+	        circle: graphic.Circle,
+
+	        diamond: Diamond,
+
+	        pin: Pin,
+
+	        arrow: Arrow,
+
+	        triangle: Triangle
+	    };
+
+	    var symbolShapeMakers = {
+
+	        line: function (x, y, w, h, shape) {
+	            // FIXME
+	            shape.x1 = x;
+	            shape.y1 = y + h / 2;
+	            shape.x2 = x + w;
+	            shape.y2 = y + h / 2;
+	        },
+
+	        rect: function (x, y, w, h, shape) {
+	            shape.x = x;
+	            shape.y = y;
+	            shape.width = w;
+	            shape.height = h;
+	        },
+
+	        roundRect: function (x, y, w, h, shape) {
+	            shape.x = x;
+	            shape.y = y;
+	            shape.width = w;
+	            shape.height = h;
+	            shape.r = Math.min(w, h) / 4;
+	        },
+
+	        square: function (x, y, w, h, shape) {
+	            var size = Math.min(w, h);
+	            shape.x = x;
+	            shape.y = y;
+	            shape.width = size;
+	            shape.height = size;
+	        },
+
+	        circle: function (x, y, w, h, shape) {
+	            // Put circle in the center of square
+	            shape.cx = x + w / 2;
+	            shape.cy = y + h / 2;
+	            shape.r = Math.min(w, h) / 2;
+	        },
+
+	        diamond: function (x, y, w, h, shape) {
+	            shape.cx = x + w / 2;
+	            shape.cy = y + h / 2;
+	            shape.width = w;
+	            shape.height = h;
+	        },
+
+	        pin: function (x, y, w, h, shape) {
+	            shape.x = x + w / 2;
+	            shape.y = y + h / 2;
+	            shape.width = w;
+	            shape.height = h;
+	        },
+
+	        arrow: function (x, y, w, h, shape) {
+	            shape.x = x + w / 2;
+	            shape.y = y + h / 2;
+	            shape.width = w;
+	            shape.height = h;
+	        },
+
+	        triangle: function (x, y, w, h, shape) {
+	            shape.cx = x + w / 2;
+	            shape.cy = y + h / 2;
+	            shape.width = w;
+	            shape.height = h;
+	        }
+	    };
+
+	    var symbolBuildProxies = {};
+	    for (var name in symbolCtors) {
+	        if (symbolCtors.hasOwnProperty(name)) {
+	            symbolBuildProxies[name] = new symbolCtors[name]();
+	        }
+	    }
+
+	    var Symbol = graphic.extendShape({
+
+	        type: 'symbol',
+
+	        shape: {
+	            symbolType: '',
+	            x: 0,
+	            y: 0,
+	            width: 0,
+	            height: 0
+	        },
+
+	        beforeBrush: function () {
+	            var style = this.style;
+	            var shape = this.shape;
+	            // FIXME
+	            if (shape.symbolType === 'pin' && style.textPosition === 'inside') {
+	                style.textPosition = ['50%', '40%'];
+	                style.textAlign = 'center';
+	                style.textVerticalAlign = 'middle';
+	            }
+	        },
+
+	        buildPath: function (ctx, shape, inBundle) {
+	            var symbolType = shape.symbolType;
+	            var proxySymbol = symbolBuildProxies[symbolType];
+	            if (shape.symbolType !== 'none') {
+	                if (!proxySymbol) {
+	                    // Default rect
+	                    symbolType = 'rect';
+	                    proxySymbol = symbolBuildProxies[symbolType];
+	                }
+	                symbolShapeMakers[symbolType](
+	                    shape.x, shape.y, shape.width, shape.height, proxySymbol.shape
+	                );
+	                proxySymbol.buildPath(ctx, proxySymbol.shape, inBundle);
+	            }
+	        }
+	    });
+
+	    // Provide setColor helper method to avoid determine if set the fill or stroke outside
+	    var symbolPathSetColor = function (color) {
+	        if (this.type !== 'image') {
+	            var symbolStyle = this.style;
+	            var symbolShape = this.shape;
+	            if (symbolShape && symbolShape.symbolType === 'line') {
+	                symbolStyle.stroke = color;
+	            }
+	            else if (this.__isEmptyBrush) {
+	                symbolStyle.stroke = color;
+	                symbolStyle.fill = '#fff';
+	            }
+	            else {
+	                // FIXME 判断图形默认是填充还是描边，使用 onlyStroke ?
+	                symbolStyle.fill && (symbolStyle.fill = color);
+	                symbolStyle.stroke && (symbolStyle.stroke = color);
+	            }
+	            this.dirty(false);
+	        }
+	    };
+
+	    var symbolUtil = {
+	        /**
+	         * Create a symbol element with given symbol configuration: shape, x, y, width, height, color
+	         * @param {string} symbolType
+	         * @param {number} x
+	         * @param {number} y
+	         * @param {number} w
+	         * @param {number} h
+	         * @param {string} color
+	         */
+	        createSymbol: function (symbolType, x, y, w, h, color) {
+	            var isEmpty = symbolType.indexOf('empty') === 0;
+	            if (isEmpty) {
+	                symbolType = symbolType.substr(5, 1).toLowerCase() + symbolType.substr(6);
+	            }
+	            var symbolPath;
+
+	            if (symbolType.indexOf('image://') === 0) {
+	                symbolPath = new graphic.Image({
+	                    style: {
+	                        image: symbolType.slice(8),
+	                        x: x,
+	                        y: y,
+	                        width: w,
+	                        height: h
+	                    }
+	                });
+	            }
+	            else if (symbolType.indexOf('path://') === 0) {
+	                symbolPath = graphic.makePath(symbolType.slice(7), {}, new BoundingRect(x, y, w, h));
+	            }
+	            else {
+	                symbolPath = new Symbol({
+	                    shape: {
+	                        symbolType: symbolType,
+	                        x: x,
+	                        y: y,
+	                        width: w,
+	                        height: h
+	                    }
+	                });
+	            }
+
+	            symbolPath.__isEmptyBrush = isEmpty;
+
+	            symbolPath.setColor = symbolPathSetColor;
+
+	            symbolPath.setColor(color);
+
+	            return symbolPath;
+	        }
+	    };
+
+	    module.exports = symbolUtil;
+
+
+/***/ },
 /* 104 */
+/***/ function(module, exports, __webpack_require__) {
+
+	
+
+	    var zrUtil = __webpack_require__(4);
+	    var echarts = __webpack_require__(1);
+	    var PRIORITY = echarts.PRIORITY;
+
+	    __webpack_require__(105);
+	    __webpack_require__(106);
+
+	    echarts.registerVisual(zrUtil.curry(
+	        __webpack_require__(111), 'line', 'circle', 'line'
+	    ));
+	    echarts.registerLayout(zrUtil.curry(
+	        __webpack_require__(112), 'line'
+	    ));
+
+	    // Down sample after filter
+	    echarts.registerProcessor(PRIORITY.PROCESSOR.STATISTIC, zrUtil.curry(
+	        __webpack_require__(113), 'line'
+	    ));
+
+	    // In case developer forget to include grid component
+	    __webpack_require__(114);
+
+
+/***/ },
+/* 105 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+
+	    var createListFromArray = __webpack_require__(101);
+	    var SeriesModel = __webpack_require__(28);
+
+	    module.exports = SeriesModel.extend({
+
+	        type: 'series.line',
+
+	        dependencies: ['grid', 'polar'],
+
+	        getInitialData: function (option, ecModel) {
+	            if (true) {
+	                var coordSys = option.coordinateSystem;
+	                if (coordSys !== 'polar' && coordSys !== 'cartesian2d') {
+	                    throw new Error('Line not support coordinateSystem besides cartesian and polar');
+	                }
+	            }
+	            return createListFromArray(option.data, this, ecModel);
+	        },
+
+	        defaultOption: {
+	            zlevel: 0,                  // 一级层叠
+	            z: 2,                       // 二级层叠
+	            coordinateSystem: 'cartesian2d',
+	            legendHoverLink: true,
+
+	            hoverAnimation: true,
+	            // stack: null
+	            // xAxisIndex: 0,
+	            // yAxisIndex: 0,
+
+	            // polarIndex: 0,
+
+	            // If clip the overflow value
+	            clipOverflow: true,
+
+	            label: {
+	                normal: {
+	                    position: 'top'
+	                }
+	            },
+	            // itemStyle: {
+	            //     normal: {},
+	            //     emphasis: {}
+	            // },
+	            lineStyle: {
+	                normal: {
+	                    width: 2,
+	                    type: 'solid'
+	                }
+	            },
+	            // areaStyle: {},
+	            // false, 'start', 'end', 'middle'
+	            step: false,
+
+	            // Disabled if step is true
+	            smooth: false,
+	            smoothMonotone: null,
+	            // 拐点图形类型
+	            symbol: 'emptyCircle',
+	            // 拐点图形大小
+	            symbolSize: 4,
+	            // 拐点图形旋转控制
+	            symbolRotate: null,
+
+	            // 是否显示 symbol, 只有在 tooltip hover 的时候显示
+	            showSymbol: true,
+	            // 标志图形默认只有主轴显示（随主轴标签间隔隐藏策略）
+	            showAllSymbol: false,
+
+	            // 是否连接断点
+	            connectNulls: false,
+
+	            // 数据过滤，'average', 'max', 'min', 'sum'
+	            sampling: 'none',
+
+	            animationEasing: 'linear',
+
+	            // Disable progressive
+	            progressive: 0,
+	            hoverLayerThreshold: Infinity
+	        }
+	    });
+
+
+/***/ },
+/* 106 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -23425,12 +23878,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 	    var zrUtil = __webpack_require__(4);
-	    var SymbolDraw = __webpack_require__(105);
-	    var Symbol = __webpack_require__(106);
-	    var lineAnimationDiff = __webpack_require__(108);
+	    var SymbolDraw = __webpack_require__(107);
+	    var Symbol = __webpack_require__(108);
+	    var lineAnimationDiff = __webpack_require__(109);
 	    var graphic = __webpack_require__(43);
 	    var modelUtil = __webpack_require__(5);
-	    var polyHelper = __webpack_require__(109);
+	    var polyHelper = __webpack_require__(110);
 	    var ChartView = __webpack_require__(42);
 
 	    function isPointsSame(points1, points2) {
@@ -24123,7 +24576,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 105 */
+/* 107 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -24132,7 +24585,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 	    var graphic = __webpack_require__(43);
-	    var Symbol = __webpack_require__(106);
+	    var Symbol = __webpack_require__(108);
 
 	    /**
 	     * @constructor
@@ -24255,7 +24708,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 106 */
+/* 108 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -24264,7 +24717,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 	    var zrUtil = __webpack_require__(4);
-	    var symbolUtil = __webpack_require__(107);
+	    var symbolUtil = __webpack_require__(103);
 	    var graphic = __webpack_require__(43);
 	    var numberUtil = __webpack_require__(7);
 
@@ -24545,7 +24998,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    symbolProto.fadeOut = function (cb) {
 	        var symbolPath = this.childAt(0);
 	        // Avoid mistaken hover when fading out
-	        this.silent = true;
+	        this.silent = symbolPath.silent = true;
 	        // Not show text when animating
 	        symbolPath.style.text = '';
 	        graphic.updateProps(symbolPath, {
@@ -24559,367 +25012,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 107 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-	// Symbol factory
-
-
-	    var graphic = __webpack_require__(43);
-	    var BoundingRect = __webpack_require__(9);
-
-	    /**
-	     * Triangle shape
-	     * @inner
-	     */
-	    var Triangle = graphic.extendShape({
-	        type: 'triangle',
-	        shape: {
-	            cx: 0,
-	            cy: 0,
-	            width: 0,
-	            height: 0
-	        },
-	        buildPath: function (path, shape) {
-	            var cx = shape.cx;
-	            var cy = shape.cy;
-	            var width = shape.width / 2;
-	            var height = shape.height / 2;
-	            path.moveTo(cx, cy - height);
-	            path.lineTo(cx + width, cy + height);
-	            path.lineTo(cx - width, cy + height);
-	            path.closePath();
-	        }
-	    });
-	    /**
-	     * Diamond shape
-	     * @inner
-	     */
-	    var Diamond = graphic.extendShape({
-	        type: 'diamond',
-	        shape: {
-	            cx: 0,
-	            cy: 0,
-	            width: 0,
-	            height: 0
-	        },
-	        buildPath: function (path, shape) {
-	            var cx = shape.cx;
-	            var cy = shape.cy;
-	            var width = shape.width / 2;
-	            var height = shape.height / 2;
-	            path.moveTo(cx, cy - height);
-	            path.lineTo(cx + width, cy);
-	            path.lineTo(cx, cy + height);
-	            path.lineTo(cx - width, cy);
-	            path.closePath();
-	        }
-	    });
-
-	    /**
-	     * Pin shape
-	     * @inner
-	     */
-	    var Pin = graphic.extendShape({
-	        type: 'pin',
-	        shape: {
-	            // x, y on the cusp
-	            x: 0,
-	            y: 0,
-	            width: 0,
-	            height: 0
-	        },
-
-	        buildPath: function (path, shape) {
-	            var x = shape.x;
-	            var y = shape.y;
-	            var w = shape.width / 5 * 3;
-	            // Height must be larger than width
-	            var h = Math.max(w, shape.height);
-	            var r = w / 2;
-
-	            // Dist on y with tangent point and circle center
-	            var dy = r * r / (h - r);
-	            var cy = y - h + r + dy;
-	            var angle = Math.asin(dy / r);
-	            // Dist on x with tangent point and circle center
-	            var dx = Math.cos(angle) * r;
-
-	            var tanX = Math.sin(angle);
-	            var tanY = Math.cos(angle);
-
-	            path.arc(
-	                x, cy, r,
-	                Math.PI - angle,
-	                Math.PI * 2 + angle
-	            );
-
-	            var cpLen = r * 0.6;
-	            var cpLen2 = r * 0.7;
-	            path.bezierCurveTo(
-	                x + dx - tanX * cpLen, cy + dy + tanY * cpLen,
-	                x, y - cpLen2,
-	                x, y
-	            );
-	            path.bezierCurveTo(
-	                x, y - cpLen2,
-	                x - dx + tanX * cpLen, cy + dy + tanY * cpLen,
-	                x - dx, cy + dy
-	            );
-	            path.closePath();
-	        }
-	    });
-
-	    /**
-	     * Arrow shape
-	     * @inner
-	     */
-	    var Arrow = graphic.extendShape({
-
-	        type: 'arrow',
-
-	        shape: {
-	            x: 0,
-	            y: 0,
-	            width: 0,
-	            height: 0
-	        },
-
-	        buildPath: function (ctx, shape) {
-	            var height = shape.height;
-	            var width = shape.width;
-	            var x = shape.x;
-	            var y = shape.y;
-	            var dx = width / 3 * 2;
-	            ctx.moveTo(x, y);
-	            ctx.lineTo(x + dx, y + height);
-	            ctx.lineTo(x, y + height / 4 * 3);
-	            ctx.lineTo(x - dx, y + height);
-	            ctx.lineTo(x, y);
-	            ctx.closePath();
-	        }
-	    });
-
-	    /**
-	     * Map of path contructors
-	     * @type {Object.<string, module:zrender/graphic/Path>}
-	     */
-	    var symbolCtors = {
-	        line: graphic.Line,
-
-	        rect: graphic.Rect,
-
-	        roundRect: graphic.Rect,
-
-	        square: graphic.Rect,
-
-	        circle: graphic.Circle,
-
-	        diamond: Diamond,
-
-	        pin: Pin,
-
-	        arrow: Arrow,
-
-	        triangle: Triangle
-	    };
-
-	    var symbolShapeMakers = {
-
-	        line: function (x, y, w, h, shape) {
-	            // FIXME
-	            shape.x1 = x;
-	            shape.y1 = y + h / 2;
-	            shape.x2 = x + w;
-	            shape.y2 = y + h / 2;
-	        },
-
-	        rect: function (x, y, w, h, shape) {
-	            shape.x = x;
-	            shape.y = y;
-	            shape.width = w;
-	            shape.height = h;
-	        },
-
-	        roundRect: function (x, y, w, h, shape) {
-	            shape.x = x;
-	            shape.y = y;
-	            shape.width = w;
-	            shape.height = h;
-	            shape.r = Math.min(w, h) / 4;
-	        },
-
-	        square: function (x, y, w, h, shape) {
-	            var size = Math.min(w, h);
-	            shape.x = x;
-	            shape.y = y;
-	            shape.width = size;
-	            shape.height = size;
-	        },
-
-	        circle: function (x, y, w, h, shape) {
-	            // Put circle in the center of square
-	            shape.cx = x + w / 2;
-	            shape.cy = y + h / 2;
-	            shape.r = Math.min(w, h) / 2;
-	        },
-
-	        diamond: function (x, y, w, h, shape) {
-	            shape.cx = x + w / 2;
-	            shape.cy = y + h / 2;
-	            shape.width = w;
-	            shape.height = h;
-	        },
-
-	        pin: function (x, y, w, h, shape) {
-	            shape.x = x + w / 2;
-	            shape.y = y + h / 2;
-	            shape.width = w;
-	            shape.height = h;
-	        },
-
-	        arrow: function (x, y, w, h, shape) {
-	            shape.x = x + w / 2;
-	            shape.y = y + h / 2;
-	            shape.width = w;
-	            shape.height = h;
-	        },
-
-	        triangle: function (x, y, w, h, shape) {
-	            shape.cx = x + w / 2;
-	            shape.cy = y + h / 2;
-	            shape.width = w;
-	            shape.height = h;
-	        }
-	    };
-
-	    var symbolBuildProxies = {};
-	    for (var name in symbolCtors) {
-	        if (symbolCtors.hasOwnProperty(name)) {
-	            symbolBuildProxies[name] = new symbolCtors[name]();
-	        }
-	    }
-
-	    var Symbol = graphic.extendShape({
-
-	        type: 'symbol',
-
-	        shape: {
-	            symbolType: '',
-	            x: 0,
-	            y: 0,
-	            width: 0,
-	            height: 0
-	        },
-
-	        beforeBrush: function () {
-	            var style = this.style;
-	            var shape = this.shape;
-	            // FIXME
-	            if (shape.symbolType === 'pin' && style.textPosition === 'inside') {
-	                style.textPosition = ['50%', '40%'];
-	                style.textAlign = 'center';
-	                style.textVerticalAlign = 'middle';
-	            }
-	        },
-
-	        buildPath: function (ctx, shape, inBundle) {
-	            var symbolType = shape.symbolType;
-	            var proxySymbol = symbolBuildProxies[symbolType];
-	            if (shape.symbolType !== 'none') {
-	                if (!proxySymbol) {
-	                    // Default rect
-	                    symbolType = 'rect';
-	                    proxySymbol = symbolBuildProxies[symbolType];
-	                }
-	                symbolShapeMakers[symbolType](
-	                    shape.x, shape.y, shape.width, shape.height, proxySymbol.shape
-	                );
-	                proxySymbol.buildPath(ctx, proxySymbol.shape, inBundle);
-	            }
-	        }
-	    });
-
-	    // Provide setColor helper method to avoid determine if set the fill or stroke outside
-	    var symbolPathSetColor = function (color) {
-	        if (this.type !== 'image') {
-	            var symbolStyle = this.style;
-	            var symbolShape = this.shape;
-	            if (symbolShape && symbolShape.symbolType === 'line') {
-	                symbolStyle.stroke = color;
-	            }
-	            else if (this.__isEmptyBrush) {
-	                symbolStyle.stroke = color;
-	                symbolStyle.fill = '#fff';
-	            }
-	            else {
-	                // FIXME 判断图形默认是填充还是描边，使用 onlyStroke ?
-	                symbolStyle.fill && (symbolStyle.fill = color);
-	                symbolStyle.stroke && (symbolStyle.stroke = color);
-	            }
-	            this.dirty(false);
-	        }
-	    };
-
-	    var symbolUtil = {
-	        /**
-	         * Create a symbol element with given symbol configuration: shape, x, y, width, height, color
-	         * @param {string} symbolType
-	         * @param {number} x
-	         * @param {number} y
-	         * @param {number} w
-	         * @param {number} h
-	         * @param {string} color
-	         */
-	        createSymbol: function (symbolType, x, y, w, h, color) {
-	            var isEmpty = symbolType.indexOf('empty') === 0;
-	            if (isEmpty) {
-	                symbolType = symbolType.substr(5, 1).toLowerCase() + symbolType.substr(6);
-	            }
-	            var symbolPath;
-
-	            if (symbolType.indexOf('image://') === 0) {
-	                symbolPath = new graphic.Image({
-	                    style: {
-	                        image: symbolType.slice(8),
-	                        x: x,
-	                        y: y,
-	                        width: w,
-	                        height: h
-	                    }
-	                });
-	            }
-	            else if (symbolType.indexOf('path://') === 0) {
-	                symbolPath = graphic.makePath(symbolType.slice(7), {}, new BoundingRect(x, y, w, h));
-	            }
-	            else {
-	                symbolPath = new Symbol({
-	                    shape: {
-	                        symbolType: symbolType,
-	                        x: x,
-	                        y: y,
-	                        width: w,
-	                        height: h
-	                    }
-	                });
-	            }
-
-	            symbolPath.__isEmptyBrush = isEmpty;
-
-	            symbolPath.setColor = symbolPathSetColor;
-
-	            symbolPath.setColor(color);
-
-	            return symbolPath;
-	        }
-	    };
-
-	    module.exports = symbolUtil;
-
-
-/***/ },
-/* 108 */
+/* 109 */
 /***/ function(module, exports) {
 
 	
@@ -25133,7 +25226,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 109 */
+/* 110 */
 /***/ function(module, exports, __webpack_require__) {
 
 	// Poly path support NaN point
@@ -25388,7 +25481,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 110 */
+/* 111 */
 /***/ function(module, exports) {
 
 	
@@ -25437,7 +25530,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 111 */
+/* 112 */
 /***/ function(module, exports) {
 
 	
@@ -25450,13 +25543,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	            if (coordSys) {
 	                var dims = coordSys.dimensions;
 
-	                if (coordSys.type === 'singleAxis') {
+	                if (dims.length === 1) {
 	                    data.each(dims[0], function (x, idx) {
 	                        // Also {Array.<number>}, not undefined to avoid if...else... statement
 	                        data.setItemLayout(idx, isNaN(x) ? [NaN, NaN] : coordSys.dataToPoint(x));
 	                    });
 	                }
-	                else {
+	                else if (dims.length === 2) {
 	                    data.each(dims, function (x, y, idx) {
 	                        // Also {Array.<number>}, not undefined to avoid if...else... statement
 	                        data.setItemLayout(
@@ -25470,7 +25563,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 112 */
+/* 113 */
 /***/ function(module, exports) {
 
 	
@@ -25553,7 +25646,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 113 */
+/* 114 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -25563,9 +25656,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var zrUtil = __webpack_require__(4);
 	    var echarts = __webpack_require__(1);
 
-	    __webpack_require__(114);
+	    __webpack_require__(115);
 
-	    __webpack_require__(131);
+	    __webpack_require__(132);
 
 	    // Grid view
 	    echarts.extendComponentView({
@@ -25597,7 +25690,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 114 */
+/* 115 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -25608,11 +25701,11 @@ return /******/ (function(modules) { // webpackBootstrap
 	var factory = exports;
 
 	    var layout = __webpack_require__(21);
-	    var axisHelper = __webpack_require__(115);
+	    var axisHelper = __webpack_require__(116);
 
 	    var zrUtil = __webpack_require__(4);
-	    var Cartesian2D = __webpack_require__(121);
-	    var Axis2D = __webpack_require__(123);
+	    var Cartesian2D = __webpack_require__(122);
+	    var Axis2D = __webpack_require__(124);
 
 	    var each = zrUtil.each;
 
@@ -25620,7 +25713,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var niceScaleExtent = axisHelper.niceScaleExtent;
 
 	    // 依赖 GridModel, AxisModel 做预处理
-	    __webpack_require__(126);
+	    __webpack_require__(127);
 
 	    /**
 	     * Check if the axis is used in the specified grid
@@ -25689,6 +25782,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return this._rect;
 	    };
 
+	    gridProto.getModel = function () {
+	        return this._model;
+	    };
+
 	    gridProto.update = function (ecModel, api) {
 
 	        var axesMap = this._axesMap;
@@ -25709,10 +25806,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	        }
 
 	        each(axesMap.x, function (xAxis) {
-	            niceScaleExtent(xAxis, xAxis.model);
+	            niceScaleExtent(xAxis.scale, xAxis.model);
 	        });
 	        each(axesMap.y, function (yAxis) {
-	            niceScaleExtent(yAxis, yAxis.model);
+	            niceScaleExtent(yAxis.scale, yAxis.model);
 	        });
 	        // Fix configuration
 	        each(axesMap.x, function (xAxis) {
@@ -25820,6 +25917,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	                }
 	            }
 	        }
+	    };
+
+	    gridProto.getCartesians = function () {
+	        return this._coordsList.slice();
 	    };
 
 	    /**
@@ -26164,16 +26265,16 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 115 */
+/* 116 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
-	    var OrdinalScale = __webpack_require__(116);
-	    var IntervalScale = __webpack_require__(118);
-	    __webpack_require__(119);
+	    var OrdinalScale = __webpack_require__(117);
+	    var IntervalScale = __webpack_require__(119);
 	    __webpack_require__(120);
-	    var Scale = __webpack_require__(117);
+	    __webpack_require__(121);
+	    var Scale = __webpack_require__(118);
 
 	    var numberUtil = __webpack_require__(7);
 	    var zrUtil = __webpack_require__(4);
@@ -26184,8 +26285,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	     * Get axis scale extent before niced.
 	     * Item of returned array can only be number (including Infinity and NaN).
 	     */
-	    axisHelper.getScaleExtent = function (axis, model) {
-	        var scale = axis.scale;
+	    axisHelper.getScaleExtent = function (scale, model) {
 	        var scaleType = scale.type;
 
 	        var min = model.getMin();
@@ -26231,7 +26331,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        (min == null || !isFinite(min)) && (min = NaN);
 	        (max == null || !isFinite(max)) && (max = NaN);
 
-	        axis.setBlank(zrUtil.eqNaN(min) || zrUtil.eqNaN(max));
+	        scale.setBlank(zrUtil.eqNaN(min) || zrUtil.eqNaN(max));
 
 	        // Evaluate if axis needs cross zero
 	        if (model.getNeedCrossZero()) {
@@ -26248,9 +26348,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return [min, max];
 	    };
 
-	    axisHelper.niceScaleExtent = function (axis, model) {
-	        var scale = axis.scale;
-	        var extent = axisHelper.getScaleExtent(axis, model);
+	    axisHelper.niceScaleExtent = function (scale, model) {
+	        var extent = axisHelper.getScaleExtent(scale, model);
 	        var fixMin = model.getMin() != null;
 	        var fixMax = model.getMax() != null;
 	        var splitNumber = model.get('splitNumber');
@@ -26414,7 +26513,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 116 */
+/* 117 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -26428,7 +26527,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 	    var zrUtil = __webpack_require__(4);
-	    var Scale = __webpack_require__(117);
+	    var Scale = __webpack_require__(118);
 
 	    var scaleProto = Scale.prototype;
 
@@ -26521,7 +26620,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 117 */
+/* 118 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -26649,6 +26748,23 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return labels;
 	    };
 
+	    /**
+	     * When axis extent depends on data and no data exists,
+	     * axis ticks should not be drawn, which is named 'blank'.
+	     */
+	    scaleProto.isBlank = function () {
+	        return this._isBlank;
+	    },
+
+	    /**
+	     * When axis extent depends on data and no data exists,
+	     * axis ticks should not be drawn, which is named 'blank'.
+	     */
+	    scaleProto.setBlank = function (isBlank) {
+	        this._isBlank = isBlank;
+	    };
+
+
 	    clazzUtil.enableClassExtend(Scale);
 	    clazzUtil.enableClassManagement(Scale, {
 	        registerWhenExtend: true
@@ -26658,7 +26774,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 118 */
+/* 119 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -26670,7 +26786,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var numberUtil = __webpack_require__(7);
 	    var formatUtil = __webpack_require__(6);
-	    var Scale = __webpack_require__(117);
+	    var Scale = __webpack_require__(118);
 
 	    var mathFloor = Math.floor;
 	    var mathCeil = Math.ceil;
@@ -26892,7 +27008,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 119 */
+/* 120 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -26906,7 +27022,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var numberUtil = __webpack_require__(7);
 	    var formatUtil = __webpack_require__(6);
 
-	    var IntervalScale = __webpack_require__(118);
+	    var IntervalScale = __webpack_require__(119);
 
 	    var intervalScaleProto = IntervalScale.prototype;
 
@@ -27058,7 +27174,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 120 */
+/* 121 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -27068,11 +27184,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 	    var zrUtil = __webpack_require__(4);
-	    var Scale = __webpack_require__(117);
+	    var Scale = __webpack_require__(118);
 	    var numberUtil = __webpack_require__(7);
 
 	    // Use some method of IntervalScale
-	    var IntervalScale = __webpack_require__(118);
+	    var IntervalScale = __webpack_require__(119);
 
 	    var scaleProto = Scale.prototype;
 	    var intervalScaleProto = IntervalScale.prototype;
@@ -27254,14 +27370,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 121 */
+/* 122 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 
 	    var zrUtil = __webpack_require__(4);
-	    var Cartesian = __webpack_require__(122);
+	    var Cartesian = __webpack_require__(123);
 
 	    function Cartesian2D(name) {
 
@@ -27370,7 +27486,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 122 */
+/* 123 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -27488,14 +27604,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 123 */
+/* 124 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
 	    var zrUtil = __webpack_require__(4);
-	    var Axis = __webpack_require__(124);
-	    var axisLabelInterval = __webpack_require__(125);
+	    var Axis = __webpack_require__(125);
+	    var axisLabelInterval = __webpack_require__(126);
 
 	    /**
 	     * Extend axis 2d
@@ -27610,7 +27726,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 124 */
+/* 125 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -27828,31 +27944,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var size = Math.abs(axisExtent[1] - axisExtent[0]);
 
 	            return Math.abs(size) / len;
-	        },
-
-	        /**
-	         * When axis extent depends on data and no data exists,
-	         * axis ticks should not be drawn, which is named 'blank'.
-	         */
-	        isBlank: function () {
-	            return this._isBlank;
-	        },
-
-	        /**
-	         * When axis extent depends on data and no data exists,
-	         * axis ticks should not be drawn, which is named 'blank'.
-	         */
-	        setBlank: function (isBlank) {
-	            this._isBlank = isBlank;
 	        }
-
 	    };
 
 	    module.exports = Axis;
 
 
 /***/ },
-/* 125 */
+/* 126 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -27863,7 +27962,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 	    var zrUtil = __webpack_require__(4);
-	    var axisHelper = __webpack_require__(115);
+	    var axisHelper = __webpack_require__(116);
 
 	    module.exports = function (axis) {
 	        var axisModel = axis.model;
@@ -27883,7 +27982,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 126 */
+/* 127 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -27891,7 +27990,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	// 所以这里也要被 Cartesian2D 依赖
 
 
-	    __webpack_require__(127);
+	    __webpack_require__(128);
 	    var ComponentModel = __webpack_require__(19);
 
 	    module.exports = ComponentModel.extend({
@@ -27927,7 +28026,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 127 */
+/* 128 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -27935,7 +28034,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var ComponentModel = __webpack_require__(19);
 	    var zrUtil = __webpack_require__(4);
-	    var axisModelCreator = __webpack_require__(128);
+	    var axisModelCreator = __webpack_require__(129);
 
 	    var AxisModel = ComponentModel.extend({
 
@@ -27989,7 +28088,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        return option.type || (option.data ? 'category' : 'value');
 	    }
 
-	    zrUtil.merge(AxisModel.prototype, __webpack_require__(130));
+	    zrUtil.merge(AxisModel.prototype, __webpack_require__(131));
 
 	    var extraOption = {
 	        // gridIndex: 0,
@@ -28006,12 +28105,12 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 128 */
+/* 129 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
-	    var axisDefault = __webpack_require__(129);
+	    var axisDefault = __webpack_require__(130);
 	    var zrUtil = __webpack_require__(4);
 	    var ComponentModel = __webpack_require__(19);
 	    var layout = __webpack_require__(21);
@@ -28069,7 +28168,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 129 */
+/* 130 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -28227,13 +28326,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 130 */
+/* 131 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
 	    var zrUtil = __webpack_require__(4);
-	    var axisHelper = __webpack_require__(115);
+	    var axisHelper = __webpack_require__(116);
 
 	    function getName(obj) {
 	        if (zrUtil.isObject(obj) && obj.value != null) {
@@ -28330,27 +28429,27 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 131 */
+/* 132 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 	// TODO boundaryGap
 
 
-	    __webpack_require__(127);
+	    __webpack_require__(128);
 
-	    __webpack_require__(132);
+	    __webpack_require__(133);
 
 
 /***/ },
-/* 132 */
+/* 133 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
 	    var zrUtil = __webpack_require__(4);
 	    var graphic = __webpack_require__(43);
-	    var AxisBuilder = __webpack_require__(133);
+	    var AxisBuilder = __webpack_require__(134);
 	    var ifIgnoreOnTick = AxisBuilder.ifIgnoreOnTick;
 	    var getInterval = AxisBuilder.getInterval;
 
@@ -28414,7 +28513,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        _splitLine: function (axisModel, gridModel, labelInterval) {
 	            var axis = axisModel.axis;
 
-	            if (axis.isBlank()) {
+	            if (axis.scale.isBlank()) {
 	                return;
 	            }
 
@@ -28488,7 +28587,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        _splitArea: function (axisModel, gridModel, labelInterval) {
 	            var axis = axisModel.axis;
 
-	            if (axis.isBlank()) {
+	            if (axis.scale.isBlank()) {
 	                return;
 	            }
 
@@ -28636,7 +28735,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 133 */
+/* 134 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -28814,7 +28913,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var axisModel = this.axisModel;
 	            var axis = axisModel.axis;
 
-	            if (!axisModel.get('axisTick.show') || axis.isBlank()) {
+	            if (!axisModel.get('axisTick.show') || axis.scale.isBlank()) {
 	                return;
 	            }
 
@@ -28884,7 +28983,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	            var axis = axisModel.axis;
 	            var show = retrieve(opt.axisLabelShow, axisModel.get('axisLabel.show'));
 
-	            if (!show || axis.isBlank()) {
+	            if (!show || axis.scale.isBlank()) {
 	                return;
 	            }
 
@@ -29236,19 +29335,19 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 134 */
+/* 135 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
 	    var zrUtil = __webpack_require__(4);
 
-	    __webpack_require__(114);
+	    __webpack_require__(115);
 
-	    __webpack_require__(135);
-	    __webpack_require__(137);
+	    __webpack_require__(136);
+	    __webpack_require__(138);
 
-	    var barLayoutGrid = __webpack_require__(140);
+	    var barLayoutGrid = __webpack_require__(141);
 	    var echarts = __webpack_require__(1);
 
 	    echarts.registerLayout(zrUtil.curry(barLayoutGrid, 'bar'));
@@ -29261,16 +29360,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	    });
 
 	    // In case developer forget to include grid component
-	    __webpack_require__(113);
+	    __webpack_require__(114);
 
 
 /***/ },
-/* 135 */
+/* 136 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
 
-	    module.exports = __webpack_require__(136).extend({
+	    module.exports = __webpack_require__(137).extend({
 
 	        type: 'series.bar',
 
@@ -29281,14 +29380,14 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 136 */
+/* 137 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 
 	    var SeriesModel = __webpack_require__(28);
-	    var createListFromArray = __webpack_require__(102);
+	    var createListFromArray = __webpack_require__(101);
 
 	    module.exports = SeriesModel.extend({
 
@@ -29356,7 +29455,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 137 */
+/* 138 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -29364,13 +29463,13 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var zrUtil = __webpack_require__(4);
 	    var graphic = __webpack_require__(43);
-	    var helper = __webpack_require__(138);
+	    var helper = __webpack_require__(139);
 
 	    var BAR_BORDER_WIDTH_QUERY = ['itemStyle', 'normal', 'barBorderWidth'];
 
 	    // FIXME
 	    // Just for compatible with ec2.
-	    zrUtil.extend(__webpack_require__(12).prototype, __webpack_require__(139));
+	    zrUtil.extend(__webpack_require__(12).prototype, __webpack_require__(140));
 
 	    var BarView = __webpack_require__(1).extendChartView({
 
@@ -29544,7 +29643,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 138 */
+/* 139 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -29601,7 +29700,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 139 */
+/* 140 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -29635,7 +29734,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 140 */
+/* 141 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -29887,7 +29986,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 141 */
+/* 142 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -29895,10 +29994,10 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var zrUtil = __webpack_require__(4);
 	    var echarts = __webpack_require__(1);
 
-	    __webpack_require__(142);
-	    __webpack_require__(144);
+	    __webpack_require__(143);
+	    __webpack_require__(145);
 
-	    __webpack_require__(145)('pie', [{
+	    __webpack_require__(146)('pie', [{
 	        type: 'pieToggleSelect',
 	        event: 'pieselectchanged',
 	        method: 'toggleSelected'
@@ -29912,17 +30011,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	        method: 'unSelect'
 	    }]);
 
-	    echarts.registerVisual(zrUtil.curry(__webpack_require__(146), 'pie'));
+	    echarts.registerVisual(zrUtil.curry(__webpack_require__(147), 'pie'));
 
 	    echarts.registerLayout(zrUtil.curry(
-	        __webpack_require__(147), 'pie'
+	        __webpack_require__(148), 'pie'
 	    ));
 
-	    echarts.registerProcessor(zrUtil.curry(__webpack_require__(149), 'pie'));
+	    echarts.registerProcessor(zrUtil.curry(__webpack_require__(150), 'pie'));
 
 
 /***/ },
-/* 142 */
+/* 143 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -29931,9 +30030,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var List = __webpack_require__(98);
 	    var zrUtil = __webpack_require__(4);
 	    var modelUtil = __webpack_require__(5);
-	    var completeDimensions = __webpack_require__(103);
+	    var completeDimensions = __webpack_require__(102);
 
-	    var dataSelectableMixin = __webpack_require__(143);
+	    var dataSelectableMixin = __webpack_require__(144);
 
 	    var PieSeries = __webpack_require__(1).extendSeriesModel({
 
@@ -30072,7 +30171,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 143 */
+/* 144 */
 /***/ function(module, exports, __webpack_require__) {
 
 	/**
@@ -30142,7 +30241,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 144 */
+/* 145 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -30548,7 +30647,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 145 */
+/* 146 */
 /***/ function(module, exports, __webpack_require__) {
 
 	
@@ -30588,7 +30687,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 146 */
+/* 147 */
 /***/ function(module, exports) {
 
 	// Pick color from palette for each data item.
@@ -30639,7 +30738,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 147 */
+/* 148 */
 /***/ function(module, exports, __webpack_require__) {
 
 	// TODO minAngle
@@ -30648,7 +30747,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	    var numberUtil = __webpack_require__(7);
 	    var parsePercent = numberUtil.parsePercent;
-	    var labelLayout = __webpack_require__(148);
+	    var labelLayout = __webpack_require__(149);
 	    var zrUtil = __webpack_require__(4);
 
 	    var PI2 = Math.PI * 2;
@@ -30785,7 +30884,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 148 */
+/* 149 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -31016,7 +31115,7 @@ return /******/ (function(modules) { // webpackBootstrap
 
 
 /***/ },
-/* 149 */
+/* 150 */
 /***/ function(module, exports) {
 
 	
